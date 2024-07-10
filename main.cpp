@@ -1,183 +1,139 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <vector>
+#include <utility>
+#include <functional>
 
+template<typename KeyType, typename ValueType, typename Hash1 = std::hash<KeyType>, typename Hash2 = std::hash<KeyType>>
 class CuckooHashTable {
 private:
-    size_t TABLE_SIZE = 10; // start capacity
-    static const int MAX_TRIES = 7;
-    std::vector<int> firstTable;
-    std::vector<int> secondTable;
-    int countElements;
+    size_t table_size_ = 10;  // Initial capacity
+    static const int32_t kMaxTries = 7;
+    std::vector<std::pair<std::pair<KeyType, ValueType>, bool>> first_table_;
+    std::vector<std::pair<std::pair<KeyType, ValueType>, bool>> second_table_;
+    int32_t count_elements_;
+    Hash1 hash_function1_;
+    Hash2 hash_function2_;
 
-    int hashFunction1(int key) const {
-        return key % TABLE_SIZE;
+    [[nodiscard]] int32_t HashFunction1(const KeyType &key) const {
+        return hash_function1_(key) % table_size_;
     }
 
-    int hashFunction2(int key) const {
-        return (key / TABLE_SIZE) % TABLE_SIZE;
+    [[nodiscard]] int32_t HashFunction2(const KeyType &key) const {
+        return hash_function2_(key) % table_size_;
     }
 
-    void insert(int key, int tableIndex) {
-        if (search(key)) {
+    void InsertInternal(KeyType key, ValueType value, int32_t table_index) {
+        if (Search(key)) {
             return;
         }
 
-        for (int i = 0; i < MAX_TRIES; ++i) {
-            int hash;
-            if (tableIndex == 1) {
-                hash = hashFunction1(key);
-                if (firstTable[hash] == INT32_MIN) {
-                    firstTable[hash] = key;
-                    countElements++;
+        for (int32_t i = 0; i < kMaxTries; ++i) {
+            int32_t hash;
+            if (table_index == 1) {
+                hash = HashFunction1(key);
+                if (!first_table_[hash].second) {
+                    first_table_[hash] = {{key, value}, true};
+                    count_elements_++;
                     return;
                 } else {
-                    std::swap(key, firstTable[hash]);
-                    tableIndex = 2;
+                    std::swap(key, first_table_[hash].first.first);
+                    std::swap(value, first_table_[hash].first.second);
+                    table_index = 2;
                 }
             } else {
-                hash = hashFunction2(key);
-                if (secondTable[hash] == INT32_MIN) {
-                    secondTable[hash] = key;
-                    countElements++;
+                hash = HashFunction2(key);
+                if (!second_table_[hash].second) {
+                    second_table_[hash] = {{key, value}, true};
+                    count_elements_++;
                     return;
                 } else {
-                    std::swap(key, secondTable[hash]);
-                    tableIndex = 1;
+                    std::swap(key, second_table_[hash].first.first);
+                    std::swap(value, second_table_[hash].first.second);
+                    table_index = 1;
                 }
             }
         }
 
-        rehash();
-        insert(key, 1);
+        Rehash();
+        InsertInternal(key, value, 1);
     }
 
-    void insert(int key) {
-        insert(key, 1);
+    [[nodiscard]] bool Search(const KeyType &key) const {
+        int32_t hash1 = HashFunction1(key);
+        int32_t hash2 = HashFunction2(key);
+
+        return (first_table_[hash1].second && first_table_[hash1].first.first == key) ||
+               (second_table_[hash2].second && second_table_[hash2].first.first == key);
     }
 
-    bool search(int key) const {
-        int hash1 = hashFunction1(key);
-        int hash2 = hashFunction2(key);
+    bool Remove(const KeyType &key) {
+        int32_t hash1 = HashFunction1(key);
+        int32_t hash2 = HashFunction2(key);
 
-        return (firstTable[hash1] == key) || (secondTable[hash2] == key);
-    }
-
-    bool remove(int key) {
-        int hash1 = hashFunction1(key);
-        int hash2 = hashFunction2(key);
-
-        if (firstTable[hash1] == key) {
-            firstTable[hash1] = INT32_MIN;
-            countElements--;
+        if (first_table_[hash1].second && first_table_[hash1].first.first == key) {
+            first_table_[hash1].second = false;
+            count_elements_--;
             return true;
-        } else if (secondTable[hash2] == key) {
-            secondTable[hash2] = INT32_MIN;
-            countElements--;
+        } else if (second_table_[hash2].second && second_table_[hash2].first.first == key) {
+            second_table_[hash2].second = false;
+            count_elements_--;
             return true;
         }
 
         return false;
     }
 
-    void rehash() {
-        std::vector<int> oldfirstTable = std::move(firstTable);
-        std::vector<int> oldsecondTable = std::move(secondTable);
+    void Rehash() {
+        auto old_first_table = std::move(first_table_);
+        auto old_second_table = std::move(second_table_);
 
-        TABLE_SIZE *= 2;
-        firstTable = std::vector<int>(TABLE_SIZE, INT32_MIN);
-        secondTable = std::vector<int>(TABLE_SIZE, INT32_MIN);
+        table_size_ *= 2;
+        first_table_ = std::vector<std::pair<std::pair<KeyType, ValueType>, bool>>(table_size_,
+                {{KeyType(), ValueType()}, false});
+        second_table_ = std::vector<std::pair<std::pair<KeyType, ValueType>, bool>>(table_size_,
+                {{KeyType(), ValueType()}, false});
 
-        countElements = 0;
+        count_elements_ = 0;
 
-        for (int key: oldfirstTable) {
-            if (key != INT32_MIN) {
-                insert(key, 1);
+        for (const auto &pair: old_first_table) {
+            if (pair.second) {
+                InsertInternal(pair.first.first, pair.first.second, 1);
             }
         }
 
-        for (int key: oldsecondTable) {
-            if (key != INT32_MIN) {
-                insert(key, 1);
+        for (const auto &pair: old_second_table) {
+            if (pair.second) {
+                InsertInternal(pair.first.first, pair.first.second, 1);
             }
         }
     }
 
 public:
-    CuckooHashTable() : firstTable(TABLE_SIZE, INT32_MIN), secondTable(TABLE_SIZE, INT32_MIN), countElements(0) {}
+    CuckooHashTable(Hash1 hash1 = Hash1(), Hash2 hash2 = Hash2())
+            : first_table_(table_size_, {{KeyType(), ValueType()}, false}),
+              second_table_(table_size_, {{KeyType(), ValueType()}, false}),
+              count_elements_(0),
+              hash_function1_(hash1),
+              hash_function2_(hash2) {}
 
-    void insertKey(int key) {
-        insert(key);
+    void Insert(const KeyType &key, const ValueType &value) {
+        InsertInternal(key, value, 1);
     }
 
-    size_t tableSize() const {
-        return countElements;
+    size_t TableSize() const {
+        return count_elements_;
     }
 
-    void searchKey(int key) const {
-        if (search(key)) {
-            std::cout << "Key " << key << " found in the table." << std::endl;
-        } else {
-            std::cout << "Key " << key << " not found in the table." << std::endl;
-        }
+    void SearchKey(const KeyType &key) const {
+        (Search(key));
     }
 
-    void removeKey(int key) {
-        if (remove(key)) {
-            std::cout << "Key " << key << " removed from the table." << std::endl;
-        } else {
-            std::cout << "Key " << key << " not found in the table." << std::endl;
-        }
-    }
-
-    void printTable() const {
-        std::cout << "1st table: ";
-        for (int el: firstTable) {
-            if (el != INT32_MIN) {
-                std::cout << el << " ";
-            }
-        }
-        std::cout << "\n" << "2nd table: ";
-        for (int el: secondTable) {
-            if (el != INT32_MIN) {
-                std::cout << el << " ";
-            }
-        }
-        std::cout << "\n";
+    void RemoveKey(const KeyType &key) {
+        Remove(key);
     }
 };
 
 int main() {
-    CuckooHashTable hashTable;
-
-    hashTable.insertKey(10);
-    hashTable.printTable();
-    hashTable.insertKey(100);
-    hashTable.printTable();
-    hashTable.insertKey(0);
-    hashTable.printTable();
-    hashTable.insertKey(150);
-    hashTable.printTable();
-    hashTable.removeKey(150);
-    hashTable.printTable();
-    hashTable.searchKey(10);
-    hashTable.insertKey(11);
-    hashTable.insertKey(165);
-    hashTable.insertKey(1213);
-    hashTable.insertKey(165);
-    hashTable.insertKey(78);
-    hashTable.insertKey(90);
-    hashTable.insertKey(3567);
-    hashTable.insertKey(8989);
-    hashTable.insertKey(90879);
-    hashTable.insertKey(0);
-    hashTable.insertKey(10);
-    hashTable.insertKey(100);
-    hashTable.insertKey(1000);
-    hashTable.insertKey(10000);
-    hashTable.insertKey(100000);
-    hashTable.insertKey(1000000);
-    hashTable.printTable();
-
-    std::cout << "Table size: " << hashTable.tableSize() << std::endl;
-
+    CuckooHashTable<int, std::string> hash_table;
     return 0;
 }
